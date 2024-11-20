@@ -435,7 +435,8 @@ uint64_t lpDecodeBacklen(unsigned char *p) {
  *     tiny string
  *     multibytes string
  * entry: | encoding | data | len |
- * 指定encoding，调用memcpy将s指针的内容分配给data，将len分配给len
+ * buf是要保存字符串编码的位置，从buf[0]开始记录encoding，
+ * 将记录str和整个entry的长度的内存区域移动到encoding记录结束的位置
  *  <encoding> | tag | len |
  */
 void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
@@ -781,26 +782,53 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size,
    * make room for the new element if the final allocation will get
    * larger, or we do it after if the final allocation will get smaller. */
 
+  /* poff = p-lp
+   * 记录插入位置的指针，其实就是传入参数p的值，后续指针p要参与计算*/
   unsigned char *dst = lp + poff; /* May be updated after reallocation. */
 
   /* Realloc before: we need more room. */
+  /* 申请更多的内存*/
   if (new_listpack_bytes > old_listpack_bytes) {
     if ((lp = lp_realloc(lp, new_listpack_bytes)) == NULL)
       return NULL;
+    /* 重新计算插入的位置，如果分配内存的时候内存块不够了，可能会重新申请内存块
+     * 导致lp的地址发生了变化*/
     dst = lp + poff;
   }
 
   /* Setup the listpack relocating the elements to make the exact room
    * we need to store the new one. */
+  /* 移动字节
+   * <header> | <ele1> <ele2> | <end>
+   *                   |
+   *                  dst
+   * 移动后:    <ele1>          <ele2>
+   * 将从dst开始，往后到结束位置的字节(old_listpack_bytes-poff)
+   * 移动到目的地址dst+elelen+backlen */
   if (where == LP_BEFORE) {
     memmove(dst + enclen + backlen_size, dst, old_listpack_bytes - poff);
-  } else { /* LP_REPLACE. */
+  }
+  /* 替换*/
+  else { /* LP_REPLACE. */
     long lendiff = (enclen + backlen_size) - replaced_len;
+    /*
+     * 将从dis+replaced_len开始往后 old_listpack_bytes-poff-replaced_len
+     * 个字节的空间 移动到
+     * dis+replaced_len+lendiff的位置，
+     * lendiff是替换的元素和先前测个位置元素的差值
+     *                  replaced_len
+     *            loff<--|<--->|-->old_listpack_bytes-poff-replaced_len
+     * <header> | <ele1> <ele2> <ele3> | <end>
+     *                   |      |
+     *                  dst dis+replaced_len
+     * 移动后:    <ele1>          <ele3>
+     */
     memmove(dst + replaced_len + lendiff, dst + replaced_len,
             old_listpack_bytes - poff - replaced_len);
   }
 
   /* Realloc after: we need to free space. */
+  // 比先前占用的空间少
   if (new_listpack_bytes < old_listpack_bytes) {
     if ((lp = lp_realloc(lp, new_listpack_bytes)) == NULL)
       return NULL;
@@ -808,6 +836,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size,
   }
 
   /* Store the entry. */
+  // **newp 指针指针
   if (newp) {
     *newp = dst;
     /* In case of deletion, set 'newp' to NULL if the next element is
@@ -817,11 +846,21 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size,
   }
   if (ele) {
     if (enctype == LP_ENCODING_INT) {
+      /* 整数的情况:
+       * 整数是存储在intenc，整数的长度存储在enclen
+       * 直接将这两块的内存移动到dst位置*/
       memcpy(dst, intenc, enclen);
     } else {
+      /* 字符串的情况:
+       * 字符串编码函数将结果放到dst位置*/
       lpEncodeString(dst, ele, size);
     }
     dst += enclen;
+    /* <ele1> <ele2> <ele3>
+     * <ele1> <  >   <ele3>
+     * 释放减少的部分的空间
+     * backlen： encoding+str 的长度的整数编码存储的位置
+     * baclen_size: backlen的长度*/
     memcpy(dst, backlen, backlen_size);
     dst += backlen_size;
   }
