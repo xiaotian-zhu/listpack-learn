@@ -866,15 +866,20 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size,
   }
 
   /* Update header. */
+  /* 更新header中的num-elements */
   if (where != LP_REPLACE || ele == NULL) {
     uint32_t num_elements = lpGetNumElements(lp);
     if (num_elements != LP_HDR_NUMELE_UNKNOWN) {
+      // 插入
       if (ele)
         lpSetNumElements(lp, num_elements + 1);
+      // ele = NULL 删除
       else
         lpSetNumElements(lp, num_elements - 1);
     }
   }
+  /* 更新header中的tot-bytes*/
+  /* 注: tot_bytes占用4个字节，最多32位，所以整个listpack的size限制在了4gb */
   lpSetTotalBytes(lp, new_listpack_bytes);
   return lp;
 }
