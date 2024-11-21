@@ -889,6 +889,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size,
  * is the same as lpInsert(). */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
   uint64_t listpack_bytes = lpGetTotalBytes(lp);
+  /* 找到end位置，在前面插入*/
   unsigned char *eofptr = lp + listpack_bytes - 1;
   return lpInsert(lp, ele, size, eofptr, LP_BEFORE, NULL);
 }
@@ -927,6 +928,7 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
       return NULL; /* Out of range the other side. */
     /* We want to scan right-to-left if the element we are looking for
      * is past the half of the listpack. */
+    /* 超过一半从后往前搜索*/
     if (index > numele / 2) {
       forward = 0;
       /* Left to right scanning always expects a negative index. Convert
